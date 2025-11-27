@@ -8,18 +8,19 @@ RUN apt-get update && \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+# Install Python dependencies using professional requirements structure
+COPY requirements/ requirements/
+RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+    -r requirements/base.txt
 
 # Copy project files
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p media staticfiles data
+RUN mkdir -p media staticfiles data logs
 
 # Set permissions
-RUN chmod -R 777 data media staticfiles
+RUN chmod -R 777 data media staticfiles logs
 
 # Collect static files
 RUN python manage.py collectstatic --noinput
