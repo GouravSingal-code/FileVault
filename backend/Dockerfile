@@ -1,34 +1,38 @@
-FROM python:3.10
+FROM python:3.10-slim
+
+# Non-root user for least-privilege execution
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
 
-# Install system dependencies
+# System dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    build-essential \
+        build-essential \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies using professional requirements structure
+# Install Python dependencies before copying source so the layer is cached
 COPY requirements/ requirements/
-RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-    -r requirements/base.txt
+RUN pip install --no-cache-dir -r requirements/production.txt
 
-# Copy project files
+# Copy application source
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p media staticfiles data logs
+# Create runtime directories and set permissions
+RUN mkdir -p media/uploads staticfiles logs data && \
+    chown -R appuser:appuser /app
 
-# Set permissions
-RUN chmod -R 777 data media staticfiles logs
+USER appuser
 
-# Collect static files
-RUN python manage.py collectstatic --noinput
-
-# Make start script executable
-COPY start.sh .
-RUN chmod +x start.sh
+# Collect static files at build time
+RUN python manage.py collectstatic --noinput \
+    --settings core.settings.production \
+    || true   # tolerate DB-less builds
 
 EXPOSE 8000
 
-CMD ["./start.sh"] 
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || exit 1
+
+CMD ["./start.sh"]

@@ -1,46 +1,36 @@
 #!/bin/sh
-
-# Exit on any error
 set -e
 
-# Default environment
-ENVIRONMENT=${1:-development}
+ENVIRONMENT=${DJANGO_ENVIRONMENT:-development}
+export DJANGO_SETTINGS_MODULE="core.settings.${ENVIRONMENT}"
 
-echo "🚀 Starting File Vault Application..."
-echo "📋 Environment: $ENVIRONMENT"
+echo "Starting File Vault — environment: ${ENVIRONMENT}"
 
-# Set Django settings module based on environment
-export DJANGO_SETTINGS_MODULE="core.settings.$ENVIRONMENT"
+# Ensure required directories exist
+mkdir -p media/uploads logs staticfiles
 
-# Copy environment file if it doesn't exist
-if [ ! -f .env ]; then
-    echo "📝 Setting up environment file..."
-    if [ -f "venv/env/$ENVIRONMENT.env" ]; then
-        cp "venv/env/$ENVIRONMENT.env" .env
-        echo "✅ Copied $ENVIRONMENT.env to .env"
-    else
-        echo "❌ Environment file venv/env/$ENVIRONMENT.env not found!"
-        echo "Available environments: development, production, testing"
-        exit 1
-    fi
+# Apply migrations
+echo "Running migrations..."
+python manage.py migrate --noinput
+
+# Collect static files (required for WhiteNoise in production)
+python manage.py collectstatic --noinput --clear
+
+if [ "${ENVIRONMENT}" = "production" ]; then
+    echo "Starting Gunicorn..."
+    exec gunicorn core.wsgi:application \
+        --bind 0.0.0.0:8000 \
+        --workers 4 \
+        --worker-class sync \
+        --worker-connections 1000 \
+        --timeout 60 \
+        --keep-alive 5 \
+        --max-requests 1000 \
+        --max-requests-jitter 100 \
+        --access-logfile - \
+        --error-logfile - \
+        --log-level info
 else
-    echo "✅ Using existing .env file"
+    echo "Starting Django development server on http://0.0.0.0:8000/"
+    exec python manage.py runserver 0.0.0.0:8000
 fi
-
-# Ensure media directory exists and has proper permissions
-echo "📁 Setting up media directory..."
-mkdir -p media/uploads
-chmod -R 755 media
-
-# Run migrations
-echo "🔄 Running migrations..."
-python manage.py makemigrations
-python manage.py migrate
-
-# Start server
-echo "🌐 Starting server on http://localhost:8000..."
-echo "📡 API endpoints available at http://localhost:8000/api/"
-echo "🛑 Press Ctrl+C to stop the server"
-echo ""
-
-python manage.py runserver 0.0.0.0:8000 
